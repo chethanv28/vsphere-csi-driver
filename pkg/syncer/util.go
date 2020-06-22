@@ -23,8 +23,10 @@ func getPVsInBoundAvailableOrReleased(ctx context.Context, metadataSyncer *metad
 		return nil, err
 	}
 	for _, pv := range allPVs {
-		if pv.Spec.CSI != nil && pv.Spec.CSI.Driver == csitypes.Name {
-			log.Debugf("FullSync: pv %v is in state %v", pv.Spec.CSI.VolumeHandle, pv.Status.Phase)
+		annotations := make(map[string]string)
+		annotations = pv.GetAnnotations()
+		if (pv.Spec.CSI != nil && pv.Spec.CSI.Driver == csitypes.Name) || (annotations["pv.kubernetes.io/provisioned-by"] == vSphereCSIBlockDriverName && pv.Spec.VsphereVolume != nil) || (annotations["pv.kubernetes.io/provisioned-by"] == inTreePluginName && annotations["pv.kubernetes.io/migrated-to"] == vSphereCSIBlockDriverName) {
+			log.Debugf("FullSync: pv %v is in state %v", pv, pv.Status.Phase)
 			if pv.Status.Phase == v1.VolumeBound || pv.Status.Phase == v1.VolumeAvailable || pv.Status.Phase == v1.VolumeReleased {
 				pvsInDesiredState = append(pvsInDesiredState, pv)
 			}
