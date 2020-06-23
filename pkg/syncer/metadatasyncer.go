@@ -619,27 +619,16 @@ func csiPVCDeleted(ctx context.Context, pvc *v1.PersistentVolumeClaim, pv *v1.Pe
 	pvcMetadata := cnsvsphere.GetCnsKubernetesEntityMetaData(pvc.Name, nil, true, string(cnstypes.CnsKubernetesEntityTypePVC), pvc.Namespace, metadataSyncer.configInfo.Cfg.Global.ClusterID, nil)
 	metadataList = append(metadataList, cnstypes.BaseCnsEntityMetadata(pvcMetadata))
 
-	annotations := make(map[string]string)
-	var err error
-	var volumeHandle string
-	annotations = pv.GetAnnotations()
-	if annotations["pv.kubernetes.io/provisioned-by"] == vSphereCSIBlockDriverName {
-		if pv.Spec.VsphereVolume == nil {
-			volumeHandle = pv.Spec.CSI.VolumeHandle
-		}
-	}
-	if (annotations["pv.kubernetes.io/provisioned-by"] == vSphereCSIBlockDriverName && pv.Spec.VsphereVolume != nil) || (annotations["pv.kubernetes.io/provisioned-by"] == inTreePluginName && annotations["pv.kubernetes.io/migrated-to"] == vSphereCSIBlockDriverName) {
-		volumeHandle, err = volumeMigrationService.GetVolumeID(ctx, pv.Spec.VsphereVolume.VolumePath)
-		if err != nil {
-			log.Errorf("failed to get VolumeID from volumeMigrationService for volumePath: %q", pv.Spec.VsphereVolume.VolumePath)
-		}
-		log.Infof("PVUpdated: volumeID: %q", volumeHandle)
+	volumeHandle, err := GetVolumeID(ctx, pv)
+	if err != nil {
+		log.Errorf("PVCDeleted: failed to get volume id for volume name: %q with err=%v", pv.Name, err)
+		return
 	}
 
 	containerCluster := cnsvsphere.GetContainerCluster(metadataSyncer.configInfo.Cfg.Global.ClusterID, metadataSyncer.configInfo.Cfg.VirtualCenter[metadataSyncer.host].User, metadataSyncer.clusterFlavor)
 	updateSpec := &cnstypes.CnsVolumeMetadataUpdateSpec{
 		VolumeId: cnstypes.CnsVolumeId{
-			Id: pv.Spec.CSI.VolumeHandle,
+			Id: volumeHandle,
 		},
 		Metadata: cnstypes.CnsVolumeMetadata{
 			ContainerCluster:      containerCluster,
@@ -662,83 +651,10 @@ func csiPVUpdated(ctx context.Context, newPv *v1.PersistentVolume, oldPv *v1.Per
 	metadataList = append(metadataList, cnstypes.BaseCnsEntityMetadata(pvMetadata))
 
 	containerCluster := cnsvsphere.GetContainerCluster(metadataSyncer.configInfo.Cfg.Global.ClusterID, metadataSyncer.configInfo.Cfg.VirtualCenter[metadataSyncer.host].User, metadataSyncer.clusterFlavor)
-	annotations := make(map[string]string)
-	var err error
-	var volumeHandle string
-	annotations = newPv.GetAnnotations()
-	if annotations["pv.kubernetes.io/provisioned-by"] == vSphereCSIBlockDriverName {
-		if newPv.Spec.VsphereVolume == nil {
-			volumeHandle = newPv.Spec.CSI.VolumeHandle
-			if oldPv.Status.Phase == v1.VolumePending && newPv.Status.Phase == v1.VolumeAvailable && newPv.Spec.StorageClassName == "" {
-				// Static PV is Created
-				var volumeType string
-				if oldPv.Spec.CSI.FSType == common.NfsV4FsType || oldPv.Spec.CSI.FSType == common.NfsFsType {
-					volumeType = common.FileVolumeType
-				} else {
-					volumeType = common.BlockVolumeType
-				}
-				log.Debugf("PVUpdated: observed static volume provisioning for the PV: %q with volumeType: %q", newPv.Name, volumeType)
-				queryFilter := cnstypes.CnsQueryFilter{
-					VolumeIds: []cnstypes.CnsVolumeId{{Id: oldPv.Spec.CSI.VolumeHandle}},
-				}
-				volumeOperationsLock.Lock()
-				defer volumeOperationsLock.Unlock()
-				queryResult, err := metadataSyncer.volumeManager.QueryVolume(ctx, queryFilter)
-				if err != nil {
-					log.Errorf("PVUpdated: QueryVolume failed. error: %+v", err)
-					return
-				}
-				if len(queryResult.Volumes) == 0 {
-					log.Infof("PVUpdated: Verified volume: %q is not marked as container volume in CNS. Calling CreateVolume with BackingID to mark volume as Container Volume.", oldPv.Spec.CSI.VolumeHandle)
-					// Call CreateVolume for Static Volume Provisioning
-					createSpec := &cnstypes.CnsVolumeCreateSpec{
-						Name:       oldPv.Name,
-						VolumeType: volumeType,
-						Metadata: cnstypes.CnsVolumeMetadata{
-							ContainerCluster:      containerCluster,
-							ContainerClusterArray: []cnstypes.CnsContainerCluster{containerCluster},
-							EntityMetadata:        metadataList,
-						},
-					}
-
-					if volumeType == common.BlockVolumeType {
-						createSpec.BackingObjectDetails = &cnstypes.CnsBlockBackingDetails{
-							CnsBackingObjectDetails: cnstypes.CnsBackingObjectDetails{},
-							BackingDiskId:           oldPv.Spec.CSI.VolumeHandle,
-						}
-					} else {
-						createSpec.BackingObjectDetails = &cnstypes.CnsVsanFileShareBackingDetails{
-							CnsFileBackingDetails: cnstypes.CnsFileBackingDetails{
-								BackingFileId: oldPv.Spec.CSI.VolumeHandle,
-							},
-						}
-					}
-					log.Debugf("PVUpdated: vSphere CSI Driver is creating volume %q with create spec %+v", oldPv.Name, spew.Sdump(createSpec))
-					_, err := metadataSyncer.volumeManager.CreateVolume(ctx, createSpec)
-					if err != nil {
-						log.Errorf("PVUpdated: Failed to create disk %s with error %+v", oldPv.Name, err)
-					} else {
-						log.Infof("PVUpdated: vSphere CSI Driver has successfully marked volume: %q as the container volume.", oldPv.Spec.CSI.VolumeHandle)
-					}
-					// Volume is successfully created so returning from here.
-					return
-				} else if queryResult.Volumes[0].VolumeId.Id == oldPv.Spec.CSI.VolumeHandle {
-					log.Infof("PVUpdated: Verified volume: %q is already marked as container volume in CNS.", oldPv.Spec.CSI.VolumeHandle)
-					// Volume is already present in the CNS, so continue with the UpdateVolumeMetadata
-				} else {
-					log.Infof("PVUpdated: Queried volume: %q is other than requested volume: %q.", oldPv.Spec.CSI.VolumeHandle, queryResult.Volumes[0].VolumeId.Id)
-					// unknown Volume is returned from the CNS, so returning from here.
-					return
-				}
-			}
-		}
-	}
-	if (annotations["pv.kubernetes.io/provisioned-by"] == vSphereCSIBlockDriverName && newPv.Spec.VsphereVolume != nil) || (annotations["pv.kubernetes.io/provisioned-by"] == inTreePluginName && annotations["pv.kubernetes.io/migrated-to"] == vSphereCSIBlockDriverName) {
-		volumeHandle, err = volumeMigrationService.GetVolumeID(ctx, newPv.Spec.VsphereVolume.VolumePath)
-		if err != nil {
-			log.Errorf("failed to get VolumeID from volumeMigrationService for volumePath: %q", newPv.Spec.VsphereVolume.VolumePath)
-		}
-		log.Infof("PVUpdated: volumeID: %q", volumeHandle)
+	volumeHandle, err := GetVolumeID(ctx, newPv)
+	if err != nil {
+		log.Errorf("PVUpdated: failed to get volume id for volume name: %q with err=%v", newPv.Name, err)
+		return
 	}
 	// call UpdateVolumeMetadata for all other cases
 	updateSpec := &cnstypes.CnsVolumeMetadataUpdateSpec{
@@ -832,7 +748,7 @@ func csiPVDeleted(ctx context.Context, pv *v1.PersistentVolume, metadataSyncer *
 			}
 			log.Infof("PVUpdated: volumeID: %q", volumeHandle)
 			log.Debugf("PVDeleted: vSphere CSI Driver is deleting volume %v with delete disk %v", pv, deleteDisk)
-			if err := volumeMigrationService.DeleteVolumeInfo(ctx, pv.Spec.CSI.VolumeHandle); err != nil {
+			if err := volumeMigrationService.DeleteVolumeInfo(ctx, volumeHandle); err != nil {
 				log.Errorf("PVDeleted: Failed to delete volumeMigration with error %+v", err)
 			}
 		}
@@ -846,8 +762,8 @@ func csiPVDeleted(ctx context.Context, pv *v1.PersistentVolume, metadataSyncer *
 			deleteDisk = true
 		}
 		log.Debugf("PVDeleted: vSphere CSI Driver is deleting volume %v with delete disk %v", pv, deleteDisk)
-		if err := metadataSyncer.volumeManager.DeleteVolume(ctx, pv.Spec.CSI.VolumeHandle, deleteDisk); err != nil {
-			log.Errorf("PVDeleted: Failed to delete disk %s with error %+v", pv.Spec.CSI.VolumeHandle, err)
+		if err := metadataSyncer.volumeManager.DeleteVolume(ctx, volumeHandle, deleteDisk); err != nil {
+			log.Errorf("PVDeleted: Failed to delete disk %s with error %+v", volumeHandle, err)
 		}
 	}
 }
@@ -871,9 +787,14 @@ func csiUpdatePod(ctx context.Context, pod *v1.Pod, metadataSyncer *metadataSync
 				metadataList = append(metadataList, cnstypes.BaseCnsEntityMetadata(podMetadata))
 				containerCluster := cnsvsphere.GetContainerCluster(metadataSyncer.configInfo.Cfg.Global.ClusterID, metadataSyncer.configInfo.Cfg.VirtualCenter[metadataSyncer.host].User, metadataSyncer.clusterFlavor)
 
+				volumeHandle, err := GetVolumeID(ctx, pv)
+				if err != nil {
+					log.Errorf("failed to get volume id for volume name: %q with err=%v", pv.Name, err)
+					continue
+				}
 				updateSpec := &cnstypes.CnsVolumeMetadataUpdateSpec{
 					VolumeId: cnstypes.CnsVolumeId{
-						Id: pv.Spec.CSI.VolumeHandle,
+						Id: volumeHandle,
 					},
 					Metadata: cnstypes.CnsVolumeMetadata{
 						ContainerCluster:      containerCluster,

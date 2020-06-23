@@ -46,21 +46,10 @@ func csiFullSync(ctx context.Context, metadataSyncer *metadataSyncInformer) {
 	// Converting k8sPVs slice to Map for clean and quicker look up.
 	k8sPVMap := make(map[string]string)
 	for _, pv := range k8sPVs {
-		annotations := make(map[string]string)
-		var err error
-		var volumeHandle string
-		annotations = pv.GetAnnotations()
-		if annotations["pv.kubernetes.io/provisioned-by"] == vSphereCSIBlockDriverName {
-			if pv.Spec.VsphereVolume == nil {
-				volumeHandle = pv.Spec.CSI.VolumeHandle
-			}
-		}
-		if (annotations["pv.kubernetes.io/provisioned-by"] == vSphereCSIBlockDriverName && pv.Spec.VsphereVolume != nil) || (annotations["pv.kubernetes.io/provisioned-by"] == inTreePluginName && annotations["pv.kubernetes.io/migrated-to"] == vSphereCSIBlockDriverName) {
-			volumeHandle, err = volumeMigrationService.GetVolumeID(ctx, pv.Spec.VsphereVolume.VolumePath)
-			if err != nil {
-				log.Errorf("failed to get VolumeID from volumeMigrationService for volumePath: %q", pv.Spec.VsphereVolume.VolumePath)
-			}
-			log.Infof("FullSync: volumeHandle: %q", volumeHandle)
+		volumeHandle, err := GetVolumeID(ctx, pv)
+		if err != nil {
+			log.Errorf("FullSync: failed to get volume id for volume name: %q with err=%v", pv.Name, err)
+			return
 		}
 		k8sPVMap[volumeHandle] = ""
 	}
@@ -131,21 +120,10 @@ func fullSyncCreateVolumes(ctx context.Context, createSpecArray []cnstypes.CnsVo
 	}
 	// Create map for easy lookup
 	for _, pv := range currentK8sPV {
-		annotations := make(map[string]string)
-		var err error
-		var volumeHandle string
-		annotations = pv.GetAnnotations()
-		if annotations["pv.kubernetes.io/provisioned-by"] == vSphereCSIBlockDriverName {
-			if pv.Spec.VsphereVolume == nil {
-				volumeHandle = pv.Spec.CSI.VolumeHandle
-			}
-		}
-		if (annotations["pv.kubernetes.io/provisioned-by"] == vSphereCSIBlockDriverName && pv.Spec.VsphereVolume != nil) || (annotations["pv.kubernetes.io/provisioned-by"] == inTreePluginName && annotations["pv.kubernetes.io/migrated-to"] == vSphereCSIBlockDriverName) {
-			volumeHandle, err = volumeMigrationService.GetVolumeID(ctx, pv.Spec.VsphereVolume.VolumePath)
-			if err != nil {
-				log.Errorf("failed to get VolumeID from volumeMigrationService for volumePath: %q", pv.Spec.VsphereVolume.VolumePath)
-			}
-			log.Infof("getEntityMetadata: volumeHandle: %q", volumeHandle)
+		volumeHandle, err := GetVolumeID(ctx, pv)
+		if err != nil {
+			log.Errorf("FullSync: failed to get volume id for volume name: %q with err=%v", pv.Name, err)
+			return
 		}
 		currentK8sPVMap[volumeHandle] = true
 	}
@@ -191,21 +169,10 @@ func fullSyncDeleteVolumes(ctx context.Context, volumeIDDeleteArray []cnstypes.C
 	}
 	// Create map for easy lookup
 	for _, pv := range currentK8sPV {
-		annotations := make(map[string]string)
-		var err error
-		var volumeHandle string
-		annotations = pv.GetAnnotations()
-		if annotations["pv.kubernetes.io/provisioned-by"] == vSphereCSIBlockDriverName {
-			if pv.Spec.VsphereVolume == nil {
-				volumeHandle = pv.Spec.CSI.VolumeHandle
-			}
-		}
-		if (annotations["pv.kubernetes.io/provisioned-by"] == vSphereCSIBlockDriverName && pv.Spec.VsphereVolume != nil) || (annotations["pv.kubernetes.io/provisioned-by"] == inTreePluginName && annotations["pv.kubernetes.io/migrated-to"] == vSphereCSIBlockDriverName) {
-			volumeHandle, err = volumeMigrationService.GetVolumeID(ctx, pv.Spec.VsphereVolume.VolumePath)
-			if err != nil {
-				log.Errorf("failed to get VolumeID from volumeMigrationService for volumePath: %q", pv.Spec.VsphereVolume.VolumePath)
-			}
-			log.Infof("getEntityMetadata: volumeHandle: %q", volumeHandle)
+		volumeHandle, err := GetVolumeID(ctx, pv)
+		if err != nil {
+			log.Errorf("FullSync: failed to get volume id for volume name: %q with err=%v", pv.Name, err)
+			return
 		}
 		currentK8sPVMap[volumeHandle] = true
 	}
@@ -309,21 +276,10 @@ func getEntityMetadata(ctx context.Context, pvList []*v1.PersistentVolume, cnsVo
 	for _, pv := range pvList {
 		k8sMetadata := buildCnsMetadataList(ctx, pv, pvToPVCMap, pvcToPodMap, metadataSyncer.configInfo.Cfg.Global.ClusterID)
 
-		annotations := make(map[string]string)
-		var err error
-		var volumeHandle string
-		annotations = pv.GetAnnotations()
-		if annotations["pv.kubernetes.io/provisioned-by"] == vSphereCSIBlockDriverName {
-			if pv.Spec.VsphereVolume == nil {
-				volumeHandle = pv.Spec.CSI.VolumeHandle
-			}
-		}
-		if (annotations["pv.kubernetes.io/provisioned-by"] == vSphereCSIBlockDriverName && pv.Spec.VsphereVolume != nil) || (annotations["pv.kubernetes.io/provisioned-by"] == inTreePluginName && annotations["pv.kubernetes.io/migrated-to"] == vSphereCSIBlockDriverName) {
-			volumeHandle, err = volumeMigrationService.GetVolumeID(ctx, pv.Spec.VsphereVolume.VolumePath)
-			if err != nil {
-				log.Errorf("failed to get VolumeID from volumeMigrationService for volumePath: %q", pv.Spec.VsphereVolume.VolumePath)
-			}
-			log.Infof("getEntityMetadata: volumeHandle: %q", volumeHandle)
+		volumeHandle, err := GetVolumeID(ctx, pv)
+		if err != nil {
+			log.Errorf("FullSync: failed to get volume id for volume name: %q with err=%v", pv.Name, err)
+			return nil, nil, err
 		}
 
 		pvToK8sEntityMetadataMap[volumeHandle] = k8sMetadata
@@ -369,21 +325,10 @@ func getVolumeSpecs(ctx context.Context, pvList []*v1.PersistentVolume, pvToCnsE
 
 	for _, pv := range pvList {
 		var operationType string
-		annotations := make(map[string]string)
-		var err error
-		var volumeHandle string
-		annotations = pv.GetAnnotations()
-		if annotations["pv.kubernetes.io/provisioned-by"] == vSphereCSIBlockDriverName {
-			if pv.Spec.VsphereVolume == nil {
-				volumeHandle = pv.Spec.CSI.VolumeHandle
-			}
-		}
-		if (annotations["pv.kubernetes.io/provisioned-by"] == vSphereCSIBlockDriverName && pv.Spec.VsphereVolume != nil) || (annotations["pv.kubernetes.io/provisioned-by"] == inTreePluginName && annotations["pv.kubernetes.io/migrated-to"] == vSphereCSIBlockDriverName) {
-			volumeHandle, err = volumeMigrationService.GetVolumeID(ctx, pv.Spec.VsphereVolume.VolumePath)
-			if err != nil {
-				log.Errorf("failed to get VolumeID from volumeMigrationService for volumePath: %q", pv.Spec.VsphereVolume.VolumePath)
-			}
-			log.Infof("getEntityMetadata: volumeHandle: %q", volumeHandle)
+		volumeHandle, err := GetVolumeID(ctx, pv)
+		if err != nil {
+			log.Errorf("FullSync: failed to get volume id for volume name: %q with err=%v", pv.Name, err)
+			continue
 		}
 
 		pvToCnsEntityMetadata, presentInCNS := pvToCnsEntityMetadataMap[volumeHandle]

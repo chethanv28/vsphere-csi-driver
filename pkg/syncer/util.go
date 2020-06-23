@@ -60,6 +60,31 @@ func IsValidVolume(ctx context.Context, volume v1.Volume, pod *v1.Pod, metadataS
 	return true, pv, pvc
 }
 
+// GetVolumeID determines if the given volume is either provisioned by in tree storage plugin or a volume provisioned by CSI driver using in-tree storage class.
+// For such volumes the method returns volume handle if successfully found by the volumeMigrationService, else returns volume handle from CSI spec for CSI volumes
+func GetVolumeID(ctx context.Context, pv *v1.PersistentVolume) (string, error) {
+	log := logger.GetLogger(ctx)
+	annotations := make(map[string]string)
+	var err error
+	var volumeHandle string
+	annotations = pv.GetAnnotations()
+	// Check if the pv is provisioned by CSI driver
+	if annotations["pv.kubernetes.io/provisioned-by"] == vSphereCSIBlockDriverName {
+		if pv.Spec.VsphereVolume == nil {
+			volumeHandle = pv.Spec.CSI.VolumeHandle
+		}
+	}
+	// Check if the volume is provisioned by in-tree plugin and has migrated-to CSI annotation OR if the volume is provisioned by CSI driver using in-tree storage class
+	if (annotations["pv.kubernetes.io/provisioned-by"] == vSphereCSIBlockDriverName && pv.Spec.VsphereVolume != nil) || (annotations["pv.kubernetes.io/provisioned-by"] == inTreePluginName && annotations["pv.kubernetes.io/migrated-to"] == vSphereCSIBlockDriverName) {
+		volumeHandle, err = volumeMigrationService.GetVolumeID(ctx, pv.Spec.VsphereVolume.VolumePath)
+		if err != nil {
+			log.Errorf("failed to get VolumeID from volumeMigrationService for volumePath: %q", pv.Spec.VsphereVolume.VolumePath)
+			return "", err
+		}
+	}
+	return volumeHandle, nil
+}
+
 // getQueryResults returns list of CnsQueryResult retrieved using
 // queryFilter with offset and limit to query volumes using pagination
 // if volumeIds is empty, then all volumes from CNS will be retrieved by pagination
