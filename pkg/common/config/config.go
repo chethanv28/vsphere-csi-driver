@@ -310,8 +310,8 @@ func validateConfig(ctx context.Context, cfg *Config) error {
 			// If featurte states config info is not provided in vsphere conf, use defaults for vanilla k8s cluster
 			log.Infof("No feature states config information is provided in the Config. Using default config map name: %s and namespace: %s", DefaultFSSConfigMapName, DefaultFSSConfigMapNamespaceVanillaK8s)
 			cfg.FeatureStatesConfig.Namespace = DefaultFSSConfigMapNamespaceVanillaK8s
-		} else if clusterFlavor == cnstypes.CnsClusterFlavorWorkload || clusterFlavor == cnstypes.CnsClusterFlavorGuest {
-			// Featurte states config info is not provided in vsphere conf in project pacific, use defaults for supervisor and tkg clusters
+		} else if clusterFlavor == cnstypes.CnsClusterFlavorWorkload {
+			// Featurte states config info is not provided in vsphere conf in project pacific, use defaults for supervisor cluster
 			cfg.FeatureStatesConfig.Namespace = DefaultCSINamespace
 		}
 	}
@@ -447,6 +447,10 @@ func GetGCconfig(ctx context.Context, cfgPath string) (*Config, error) {
 			return cfg, err
 		}
 	}
+	// Featurte states config info is not provided in vsphere conf in tkg clusters. Initializing with default values
+	cfg.FeatureStatesConfig.Name = DefaultFSSConfigMapName
+	cfg.FeatureStatesConfig.Namespace = DefaultCSINamespace
+
 	return cfg, nil
 }
 
