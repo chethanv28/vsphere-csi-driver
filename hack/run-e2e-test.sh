@@ -47,7 +47,7 @@ OPTS=()
 if [ -z "${GINKGO_OPTS-}" ]; then
     OPTS=(-v)
 else
-    read -ra OPTS <<< "-v $GINKGO_OPTS"
+    read -ra OPTS <<< "-p -v $GINKGO_OPTS"
 fi
 
 ginkgo "${OPTS[@]}" --focus="$FOCUS" tests/e2e

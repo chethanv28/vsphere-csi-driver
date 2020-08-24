@@ -19,6 +19,7 @@ package e2e
 import (
 	"context"
 	"fmt"
+	"math/rand"
 	"strconv"
 	"strings"
 	"time"
@@ -56,7 +57,8 @@ import (
 
 */
 
-var _ = ginkgo.Describe("Data Persistence", func() {
+var _ = ginkgo.Describe("[Parallelized] Data Persistence", func() {
+	rand.Seed(time.Now().UnixNano())
 	f := framework.NewDefaultFramework("e2e-data-persistence")
 	var (
 		client            clientset.Interface
