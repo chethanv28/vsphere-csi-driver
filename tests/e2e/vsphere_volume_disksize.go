@@ -19,6 +19,7 @@ package e2e
 import (
 	"context"
 	"fmt"
+	"math/rand"
 	"time"
 
 	"github.com/onsi/ginkgo"
@@ -43,7 +44,8 @@ import (
 	4. Verify disk size specified is being honored
 */
 
-var _ = ginkgo.Describe("[csi-vanilla] [csi-supervisor] [csi-guest] Volume Disk Size ", func() {
+var _ = ginkgo.Describe("[csi-vanilla] [csi-supervisor] [csi-guest] [Parallelized] Volume Disk Size ", func() {
+	rand.Seed(time.Now().UnixNano())
 	f := framework.NewDefaultFramework("volume-disksize")
 	var (
 		client            clientset.Interface

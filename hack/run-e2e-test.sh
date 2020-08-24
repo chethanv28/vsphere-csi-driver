@@ -50,7 +50,12 @@ else
     read -ra OPTS <<< "-p -v $GINKGO_OPTS"
 fi
 
-ginkgo "${OPTS[@]}" --focus="$FOCUS" tests/e2e
+if [ "$FOCUS" == "csi-block-vanilla" ]
+then
+    OPTS+=(-p)
+    ginkgo "${OPTS[@]}" --focus="Parallelized" tests/e2e
+fi
+# ginkgo "${OPTS[@]}" --focus="Serialized" tests/e2e
 
 # Checking for test status
 TEST_PASS=$?

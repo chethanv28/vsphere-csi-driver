@@ -19,6 +19,7 @@ package e2e
 import (
 	"context"
 	"fmt"
+	"math/rand"
 	"os"
 	"strconv"
 	"strings"
@@ -56,7 +57,8 @@ import (
    - Delete PVC and StorageClass and verify volume is deleted from CNS.
 */
 
-var _ bool = ginkgo.Describe("[csi-block-vanilla] label-updates", func() {
+var _ bool = ginkgo.Describe("[csi-block-vanilla] [Parallelized] label-updates", func() {
+	rand.Seed(time.Now().UnixNano())
 	f := framework.NewDefaultFramework("e2e-volume-label-updates")
 	var (
 		client              clientset.Interface
@@ -507,7 +509,7 @@ var _ bool = ginkgo.Describe("[csi-block-vanilla] label-updates", func() {
 
 		ginkgo.By(fmt.Sprintf("Creating the PV with the fcdID %s", fcdID))
 		staticPVLabels := make(map[string]string)
-		staticPVLabels["fcd-id"] = fcdID
+		staticPVLabels["fcd-id-label-updates"] = fcdID
 		pv := getPersistentVolumeSpec(fcdID, v1.PersistentVolumeReclaimRetain, staticPVLabels)
 		pv, err = client.CoreV1().PersistentVolumes().Create(ctx, pv, metav1.CreateOptions{})
 		if err != nil {

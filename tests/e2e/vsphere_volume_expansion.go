@@ -19,6 +19,7 @@ package e2e
 import (
 	"context"
 	"fmt"
+	"math/rand"
 	"os"
 	"strconv"
 	"strings"
@@ -42,7 +43,8 @@ import (
 	storage_utils "k8s.io/kubernetes/test/e2e/storage/utils"
 )
 
-var _ = ginkgo.Describe("[csi-block-vanilla] Volume Expansion Test", func() {
+var _ = ginkgo.Describe("[Parallelized] Volume Expansion Test", func() {
+	rand.Seed(time.Now().UnixNano())
 	f := framework.NewDefaultFramework("volume-expansion")
 	var (
 		client            clientset.Interface
@@ -77,7 +79,7 @@ var _ = ginkgo.Describe("[csi-block-vanilla] Volume Expansion Test", func() {
 	// 9. Delete pod and Wait for Volume Disk to be detached from the Node.
 	// 10. Delete PVC, PV and Storage Class.
 
-	ginkgo.It("Verify volume expansion with no filesystem before expansion", func() {
+	ginkgo.It("[csi-block-vanilla] Verify volume expansion with no filesystem before expansion", func() {
 		invokeTestForVolumeExpansion(f, client, namespace, "", storagePolicyName, profileID)
 	})
 
@@ -100,7 +102,7 @@ var _ = ginkgo.Describe("[csi-block-vanilla] Volume Expansion Test", func() {
 	// 12. Delete pod and Wait for Volume Disk to be detached from the Node.
 	// 13. Delete PVC, PV and Storage Class.
 
-	ginkgo.It("Verify volume expansion with initial filesystem before expansion", func() {
+	ginkgo.It("[csi-block-vanilla] Verify volume expansion with initial filesystem before expansion", func() {
 		invokeTestForVolumeExpansionWithFilesystem(f, client, namespace, "", storagePolicyName, profileID)
 	})
 
@@ -115,7 +117,7 @@ var _ = ginkgo.Describe("[csi-block-vanilla] Volume Expansion Test", func() {
 	// 5. Modify PVC's size to trigger offline volume expansion.
 	// 6. Verify if the PVC expansion fails.
 
-	ginkgo.It("Verify volume expansion not allowed", func() {
+	ginkgo.It("[csi-block-vanilla] Verify volume expansion not allowed", func() {
 		invokeTestForInvalidVolumeExpansion(f, client, namespace, storagePolicyName, profileID)
 	})
 
@@ -132,7 +134,7 @@ var _ = ginkgo.Describe("[csi-block-vanilla] Volume Expansion Test", func() {
 	// 7. Modify PVC's size to trigger volume expansion.
 	// 8. Verify if the PVC expansion fails because online expansion is not supported.
 
-	ginkgo.It("Verify online volume expansion not allowed", func() {
+	ginkgo.It("[csi-block-vanilla] Verify online volume expansion not allowed", func() {
 		invokeTestForInvalidOnlineVolumeExpansion(f, client, namespace, "", storagePolicyName, profileID)
 	})
 
@@ -147,7 +149,7 @@ var _ = ginkgo.Describe("[csi-block-vanilla] Volume Expansion Test", func() {
 	// 5. Modify PVC's size to a smaller size.
 	// 6. Verify if the PVC expansion fails.
 
-	ginkgo.It("Verify volume shrinking not allowed", func() {
+	ginkgo.It("[csi-block-vanilla] Verify volume shrinking not allowed", func() {
 		invokeTestForInvalidVolumeShrink(f, client, namespace, storagePolicyName, profileID)
 	})
 
@@ -164,7 +166,7 @@ var _ = ginkgo.Describe("[csi-block-vanilla] Volume Expansion Test", func() {
 	// 7. Delete PVC.
 	// 8. Verify PV is deleted automatically.
 
-	ginkgo.It("Verify volume expansion is not support for static provisioning", func() {
+	ginkgo.It("[csi-block-vanilla] Verify volume expansion is not support for static provisioning", func() {
 		invokeTestForInvalidVolumeExpansionStaticProvision(f, client, namespace, storagePolicyName, profileID)
 	})
 
@@ -183,7 +185,7 @@ var _ = ginkgo.Describe("[csi-block-vanilla] Volume Expansion Test", func() {
 	// 9. Delete pod and Wait for Volume Disk to be detached from the Node.
 	// 10. Delete PVC, PV and Storage Class.
 
-	ginkgo.It("Verify volume expansion can happen multiple times", func() {
+	ginkgo.It("[csi-block-vanilla] Verify volume expansion can happen multiple times", func() {
 		invokeTestForExpandVolumeMultipleTimes(f, client, namespace, "", storagePolicyName, profileID)
 	})
 
@@ -719,7 +721,7 @@ func invokeTestForInvalidVolumeExpansionStaticProvision(f *framework.Framework, 
 	// Creating label for PV.
 	// PVC will use this label as Selector to find PV
 	staticPVLabels := make(map[string]string)
-	staticPVLabels["fcd-id"] = fcdID
+	staticPVLabels["fcd-id-volume-expansion"] = fcdID
 
 	ginkgo.By("Creating the PV")
 	pv = getPersistentVolumeSpec(fcdID, v1.PersistentVolumeReclaimDelete, staticPVLabels)
