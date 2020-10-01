@@ -90,7 +90,7 @@ func (c *controller) Init(config *cnsconfig.Config, version string) error {
 	ctx = logger.NewContextWithLogger(ctx)
 	log := logger.GetLogger(ctx)
 
-	log.Infof("Initializing CNS controller")
+	log.Infof("Verify e2e Pipeline: Initializing CNS controller")
 	var err error
 	// Get VirtualCenterManager instance and validate version
 	vcenterconfig, err := cnsvsphere.GetVirtualCenterConfig(ctx, config)

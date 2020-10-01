@@ -86,7 +86,7 @@ func (c *controller) Init(config *cnsconfig.Config, version string) error {
 	ctx = logger.NewContextWithLogger(ctx)
 	log := logger.GetLogger(ctx)
 
-	log.Infof("Initializing WCPGC CSI controller")
+	log.Infof("Verify e2e Pipeline: Initializing WCPGC CSI controller")
 	var err error
 	// connect to the CSI controller in supervisor cluster
 	c.supervisorNamespace, err = cnsconfig.GetSupervisorNamespace(ctx)
