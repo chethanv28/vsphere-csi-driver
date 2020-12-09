@@ -28,6 +28,7 @@ import (
 	"github.com/vmware/govmomi/units"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/klog"
 
 	cnsvolume "sigs.k8s.io/vsphere-csi-driver/pkg/common/cns-lib/volume"
@@ -35,6 +36,7 @@ import (
 	"sigs.k8s.io/vsphere-csi-driver/pkg/common/config"
 	"sigs.k8s.io/vsphere-csi-driver/pkg/csi/service/common"
 	csitypes "sigs.k8s.io/vsphere-csi-driver/pkg/csi/types"
+	k8s "sigs.k8s.io/vsphere-csi-driver/pkg/kubernetes"
 )
 
 var (
@@ -103,6 +105,7 @@ func (c *controller) Init(config *config.Config) error {
 		klog.Errorf("Failed to initialize nodeMgr. err=%v", err)
 		return err
 	}
+	go cnsvolume.ClearTaskInfoObjects()
 	return nil
 }
 
@@ -250,6 +253,50 @@ func (c *controller) DeleteVolume(ctx context.Context, req *csi.DeleteVolumeRequ
 	err = validateVanillaDeleteVolumeRequest(req)
 	if err != nil {
 		return nil, err
+	}
+	k8sClient, err := k8s.NewClient()
+	if err != nil {
+		msg := fmt.Sprintf("DeleteVolume: Creating Kubernetes client failed. Err: %v", err)
+		klog.Error(msg)
+		return nil, status.Errorf(codes.Internal, msg)
+	}
+	// Get the list of persistent volumes from k8s
+	pvList, err := k8sClient.CoreV1().PersistentVolumes().List(metav1.ListOptions{})
+	if err != nil {
+		msg := fmt.Sprintf("DeleteVolume: Error getting PersistentVolumes from API server with err: %v", err)
+		klog.Error(msg)
+		return nil, status.Errorf(codes.Internal, msg)
+	}
+	klog.V(4).Infof("DeleteVolume: pvList: %+v", pvList)
+	var pvFound bool
+	var pvName string
+	// Find the PV name for the delete volume request
+	for _, pv := range pvList.Items {
+		klog.V(4).Infof("DeleteVolume: pv: %+v", pv)
+		if pv.Spec.CSI != nil {
+			if pv.Spec.CSI.VolumeHandle == req.VolumeId {
+				klog.V(4).Infof("DeleteVolume: pv.Spec.CSI.VolumeHandle: %+v", pv.Spec.CSI.VolumeHandle)
+				pvFound = true
+				pvName = pv.Name
+			}
+		}
+	}
+	// After finding the PV name, check if the PV is found in any of the volume attachments from k8s
+	if pvFound {
+		vaList, err := k8sClient.StorageV1().VolumeAttachments().List(metav1.ListOptions{})
+		if err != nil {
+			msg := fmt.Sprintf("DeleteVolume: Error getting VolumeAttachments from API server with err: %v", err)
+			klog.Error(msg)
+			return nil, status.Errorf(codes.Internal, msg)
+		}
+		klog.V(4).Infof("DeleteVolume: vaList: %+v", vaList)
+		for _, va := range vaList.Items {
+			if va.Spec.Source.PersistentVolumeName != nil && *va.Spec.Source.PersistentVolumeName == pvName {
+				msg := fmt.Sprintf("DeleteVolume: Persistentvolume %s is still attached to node %s", pvName, va.Spec.NodeName)
+				klog.Error(msg)
+				return nil, status.Errorf(codes.Internal, msg)
+			}
+		}
 	}
 	err = common.DeleteVolumeUtil(ctx, c.manager, req.VolumeId, true)
 	if err != nil {
