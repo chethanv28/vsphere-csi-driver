@@ -385,6 +385,12 @@ func (vc *VirtualCenter) GetVsanDatastores(ctx context.Context) (map[string]*Dat
 		finder.SetDatacenter(dc.Datacenter)
 		datastoresList, err := finder.DatastoreList(ctx, "*")
 		if err != nil {
+			if err != nil {
+				if _, ok := err.(*find.NotFoundError); ok {
+					log.Warnf("No datastores found in dc: %+v. error: %+v", dc, err)
+					continue
+				}
+			}
 			log.Errorf("failed to get all the datastores. err: %+v", err)
 			return nil, err
 		}
