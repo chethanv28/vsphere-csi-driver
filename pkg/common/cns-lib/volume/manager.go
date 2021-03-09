@@ -33,6 +33,7 @@ import (
 	"github.com/vmware/govmomi/property"
 	"github.com/vmware/govmomi/vim25/mo"
 	vim25types "github.com/vmware/govmomi/vim25/types"
+	"github.com/vmware/govmomi/vslm"
 
 	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/pkg/common/cns-lib/vsphere"
 )
@@ -76,6 +77,8 @@ type Manager interface {
 	ResetManager(ctx context.Context, vcenter *cnsvsphere.VirtualCenter)
 	// ConfigureVolumeACLs configures net permissions for a given CnsVolumeACLConfigureSpec
 	ConfigureVolumeACLs(ctx context.Context, spec cnstypes.CnsVolumeACLConfigureSpec) error
+	// RegisterDisk registers virtual disks as First Class disks using Vslm endpoint
+	RegisterDisk(ctx context.Context, path string, name string) (string, error)
 }
 
 // CnsVolumeInfo hold information related to volume created by CNS
@@ -950,4 +953,27 @@ func (m *defaultManager) ConfigureVolumeACLs(ctx context.Context, spec cnstypes.
 			prometheus.PrometheusPassStatus).Observe(time.Since(start).Seconds())
 	}
 	return err
+}
+
+// RegisterDisk registers a virtual disk as a First Class Disk.
+// This method helps in registering VCP volumes as FCD using vslm endpoint
+func (m *defaultManager) RegisterDisk(ctx context.Context, path string, name string) (string, error) {
+	log := logger.GetLogger(ctx)
+	err := validateManager(ctx, m)
+	if err != nil {
+		return "", err
+	}
+	// Set up the VC connection
+	err = m.virtualCenter.ConnectVslm(ctx)
+	if err != nil {
+		log.Errorf("ConnectVslm failed with err: %+v", err)
+		return "", err
+	}
+	globalObjectManager := vslm.NewGlobalObjectManager(m.virtualCenter.VslmClient)
+	vStorageObject, err := globalObjectManager.RegisterDisk(ctx, path, name)
+	if err != nil {
+		log.Errorf("failed to register virtual disk %q as first class disk with err: %v", path, err)
+		return "", err
+	}
+	return vStorageObject.Config.Id.Id, nil
 }
