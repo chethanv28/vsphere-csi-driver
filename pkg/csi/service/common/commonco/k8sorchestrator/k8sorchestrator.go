@@ -200,7 +200,7 @@ func (m *volumeIDToNameMap) get(volumeID string) (string, bool) {
 type K8sOrchestrator struct {
 	supervisorFSS        FSSConfigMapInfo
 	internalFSS          FSSConfigMapInfo
-	releasedVanillaFSS   map[string]struct{}
+	releasedVanillaFSS   map[string]bool
 	informerManager      *k8s.InformerManager
 	clusterFlavor        cnstypes.CnsClusterFlavor
 	volumeIDToPvcMap     *volumeIDToPvcMap
@@ -341,6 +341,7 @@ func Newk8sOrchestrator(ctx context.Context, controllerClusterFlavor cnstypes.Cn
 	return k8sOrchestratorInstance, nil
 }
 
+<<<<<<< Updated upstream
 func getReleasedVanillaFSS() map[string]struct{} {
 	return map[string]struct{}{
 		common.CSIMigration:                   {},
@@ -355,6 +356,23 @@ func getReleasedVanillaFSS() map[string]struct{} {
 		common.MultiVCenterCSITopology:        {},
 		common.CSIInternalGeneratedClusterID:  {},
 		common.ListViewPerf:                   {},
+=======
+func getReleasedVanillaFSS() map[string]bool{} {
+	return map[string]bool{}{
+		common.CSIMigration:                   true,
+		common.OnlineVolumeExtend:             true,
+		common.AsyncQueryVolume:               true,
+		common.BlockVolumeSnapshot:            true,
+		common.CSIWindowsSupport:              true,
+		common.ListVolumes:                    true,
+		common.CnsMgrSuspendCreateVolume:      true,
+		common.TopologyPreferentialDatastores: true,
+		common.MaxPVSCSITargetsPerVM:          true,
+		common.MultiVCenterCSITopology:        true,
+		common.CSIInternalGeneratedClusterID:  true,
+		common.ListViewPerf:                   true,
+		common.TopologyAwareFileVolume:        true,
+>>>>>>> Stashed changes
 	}
 }
 
@@ -1054,14 +1072,14 @@ func (c *K8sOrchestrator) IsFSSEnabled(ctx context.Context, featureName string) 
 		err                    error
 	)
 	if c.clusterFlavor == cnstypes.CnsClusterFlavorVanilla {
-		// first check hard coded FSS map. these are GA'ed features
-		// we don't need a lock for this one as this is map is read only after init
+		// First check if the FSS exists in the built-in FSS map. These are GA'ed features
+		// we don't need a lock for this one as this map is read only after init
 		if _, isReleased := c.releasedVanillaFSS[featureName]; isReleased {
 			return true
 		}
 
 		c.internalFSS.featureStatesLock.RLock()
-		// for testing, we still need to provide a way to toggle unreleased fss.
+		// For testing, we still need to provide a way to toggle unreleased FSS.
 		// so we can look in the live configmap for these
 		if state, ok := c.internalFSS.featureStates[featureName]; ok {
 			c.internalFSS.featureStatesLock.RUnlock()
