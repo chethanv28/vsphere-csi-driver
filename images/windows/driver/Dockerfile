@@ -16,7 +16,7 @@
 ##                               BUILD ARGS                                   ##
 ################################################################################
 # This build arg allows the specification of a custom Golang image.
-ARG GOLANG_IMAGE=golang:1.24
+ARG GOLANG_IMAGE=golang:1.25
 ARG OSVERSION
 ARG ARCH=amd64
 
@@ -38,8 +38,6 @@ COPY go.mod go.sum ./
 COPY pkg/    pkg/
 COPY cmd/    cmd/
 ENV CGO_ENABLED=0
-ENV GOFIPS=1
-ENV GOEXPERIMENT="boringcrypto"
 ENV GOPROXY ${GOPROXY:-https://proxy.golang.org}
 RUN GOOS=windows GOARCH=amd64 go build -a -ldflags="-w -s -extldflags=static -X sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service.Version=${VERSION}" -o ./bin/vsphere-csi.windows_amd64 cmd/vsphere-csi/main.go
 

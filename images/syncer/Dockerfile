@@ -14,7 +14,7 @@
 ##                               BUILD ARGS                                   ##
 ################################################################################
 # This build arg allows the specification of a custom Golang image.
-ARG GOLANG_IMAGE=golang:1.24
+ARG GOLANG_IMAGE=golang:1.25
 
 # This build arg allows the specification of a custom base image.
 ARG BASE_IMAGE=photon:5.0
@@ -41,9 +41,6 @@ ENV CGO_ENABLED=0
 
 ENV GOPROXY=${GOPROXY:-https://proxy.golang.org}
 
-ENV GOFIPS=1
-
-ENV GOEXPERIMENT="boringcrypto"
 
 RUN go build -a -ldflags="-w -s -extldflags=static -X sigs.k8s.io/vsphere-csi-driver/v3/pkg/syncer.Version=${VERSION}" -o vsphere-syncer ./cmd/syncer
 

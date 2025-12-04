@@ -13,8 +13,6 @@ export BIN_OUT ?= $(BUILD_OUT)/bin
 # DIST_OUT is the directory containting the distribution packages
 export DIST_OUT ?= $(BUILD_OUT)/dist
 
-# Compile Go with boringcrypto. This is required to import crypto/tls/fipsonly package.
-export GOEXPERIMENT=boringcrypto
 
 
 ################################################################################
@@ -93,25 +91,25 @@ LDFLAGS := $(shell cat hack/make/ldflags.txt)
 LDFLAGS_CSI := $(LDFLAGS) -X "$(MOD_NAME)/pkg/csi/service.Version=$(VERSION)"
 LDFLAGS_SYNCER := $(LDFLAGS) -X "$(MOD_NAME)/pkg/syncer.Version=$(VERSION)"
 
-# The CSI binary.
-CSI_BIN_NAME := vsphere-csi
-CSI_BIN := $(BIN_OUT)/$(CSI_BIN_NAME).$(GOOS)_$(GOARCH)
-CSI_BIN_LINUX := $(BIN_OUT)/$(CSI_BIN_NAME).linux_$(GOARCH)
-CSI_BIN_WINDOWS := $(BIN_OUT)/$(CSI_BIN_NAME).windows_$(GOARCH)
-build-csi: $(CSI_BIN) 
-build-csi-windows: $(CSI_BIN_WINDOWS)
-ifndef CSI_BIN_SRCS
-CSI_BIN_SRCS := cmd/$(CSI_BIN_NAME)/main.go go.mod go.sum
-CSI_BIN_SRCS += $(addsuffix /*.go,$(shell go list -f '{{ join .Deps "\n" }}' ./cmd/$(CSI_BIN_NAME) | grep $(MOD_NAME) | sed 's~$(MOD_NAME)~.~'))
-export CSI_BIN_SRCS
-endif
-$(CSI_BIN): $(CSI_BIN_SRCS)
-	CGO_ENABLED=0 GOOS=$(GOOS) GOARCH=$(GOARCH) go build -ldflags '$(LDFLAGS_CSI)' -o $(CSI_BIN_LINUX) $<
-	@touch $@
+# # The CSI binary.
+# CSI_BIN_NAME := vsphere-csi
+# CSI_BIN := $(BIN_OUT)/$(CSI_BIN_NAME).$(GOOS)_$(GOARCH)
+# CSI_BIN_LINUX := $(BIN_OUT)/$(CSI_BIN_NAME).linux_$(GOARCH)
+# CSI_BIN_WINDOWS := $(BIN_OUT)/$(CSI_BIN_NAME).windows_$(GOARCH)
+# build-csi: $(CSI_BIN) 
+# build-csi-windows: $(CSI_BIN_WINDOWS)
+# ifndef CSI_BIN_SRCS
+# CSI_BIN_SRCS := cmd/$(CSI_BIN_NAME)/main.go go.mod go.sum
+# CSI_BIN_SRCS += $(addsuffix /*.go,$(shell go list -f '{{ join .Deps "\n" }}' ./cmd/$(CSI_BIN_NAME) | grep $(MOD_NAME) | sed 's~$(MOD_NAME)~.~'))
+# export CSI_BIN_SRCS
+# endif
+# $(CSI_BIN): $(CSI_BIN_SRCS)
+# 	CGO_ENABLED=0 GOOS=$(GOOS) GOARCH=$(GOARCH) go build -ldflags '$(LDFLAGS_CSI)' -o $(CSI_BIN_LINUX) $<
+# 	@touch $@
 
-$(CSI_BIN_WINDOWS): $(CSI_BIN_SRCS)
-	CGO_ENABLED=0 GOOS=windows GOARCH=$(GOARCH) go build -ldflags '$(LDFLAGS_CSI)' -o $(CSI_BIN_WINDOWS) $<
-	@touch $@
+# $(CSI_BIN_WINDOWS): $(CSI_BIN_SRCS)
+# 	CGO_ENABLED=0 GOOS=windows GOARCH=$(GOARCH) go build -ldflags '$(LDFLAGS_CSI)' -o $(CSI_BIN_WINDOWS) $<
+# 	@touch $@
 
 
 # The Syncer binary.
