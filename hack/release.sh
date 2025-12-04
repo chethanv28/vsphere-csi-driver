@@ -51,7 +51,24 @@ BUILD_RELEASE_TYPE="${BUILD_RELEASE_TYPE:-}"
 # Example: CUSTOM_REPO_FOR_GOLANG=<docker-registry>/dockerhub-proxy-cache/library/
 GOLANG_IMAGE=${CUSTOM_REPO_FOR_GOLANG:-}golang:1.25.5
 
-ARCH=amd64
+# Detect architecture automatically, default to amd64 if not detected
+ARCH=${ARCH:-$(uname -m)}
+case "$ARCH" in
+  x86_64)
+    ARCH=amd64
+    ;;
+  aarch64|arm64)
+    ARCH=arm64
+    ;;
+  armv7l)
+    ARCH=arm
+    ;;
+  *)
+    echo "Warning: Unknown architecture $ARCH, defaulting to amd64"
+    ARCH=amd64
+    ;;
+esac
+
 OSVERSION=1809
 # OS Version for the Windows images: 1809, 20H2, ltsc2022
 OSVERSION_WIN=(1809 20H2 ltsc2022)
@@ -136,7 +153,7 @@ function build_driver_images_linux() {
    --output "${LINUX_IMAGE_OUTPUT}" \
    --file images/driver/Dockerfile \
    --tag "${tag}" \
-   --build-arg ARCH=amd64 \
+   --build-arg ARCH=${ARCH} \
    --build-arg "VERSION=${VERSION}" \
    --build-arg "GOPROXY=${GOPROXY}" \
    --build-arg "GIT_COMMIT=${GIT_COMMIT}" \
@@ -148,6 +165,7 @@ function build_driver_images_linux() {
 function build_syncer_image_linux() {
   echo "building ${SYNCER_IMAGE_NAME}:${VERSION} for linux"
   docker buildx build --platform "linux/$ARCH"\
+      --output "${LINUX_IMAGE_OUTPUT}" \
       -f images/syncer/Dockerfile \
       -t "${SYNCER_IMAGE_NAME}":"${VERSION}" \
       --build-arg "VERSION=${VERSION}" \
