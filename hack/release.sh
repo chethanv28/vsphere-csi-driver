@@ -148,6 +148,7 @@ function build_driver_images_linux() {
 function build_syncer_image_linux() {
   echo "building ${SYNCER_IMAGE_NAME}:${VERSION} for linux"
   docker buildx build --platform "linux/$ARCH"\
+      --output "${LINUX_IMAGE_OUTPUT}" \
       -f images/syncer/Dockerfile \
       -t "${SYNCER_IMAGE_NAME}":"${VERSION}" \
       --build-arg "VERSION=${VERSION}" \
@@ -172,10 +173,10 @@ function build_images() {
   build_driver_images_linux
   build_syncer_image_linux
 
-  if [ "$DO_WINDOWS_BUILD" = true ]; then
-    # build images for windows platform
-    build_driver_images_windows
-  fi
+  # if [ "$DO_WINDOWS_BUILD" = true ]; then
+  #   # build images for windows platform
+  #   build_driver_images_windows
+  # fi
 }
 
 function push_manifest_driver() {
