@@ -1,0 +1,222 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>cns-health · {{.Driver.Name}}</title>
+  <meta http-equiv="refresh" content="30" />
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --bg:       #0d1117;
+      --bg-card:  #161b22;
+      --bg-row:   #1c2128;
+      --border:   #30363d;
+      --text-1:   #e6edf3;
+      --text-2:   #8b949e;
+      --text-3:   #484f58;
+      --accent:   #58a6ff;
+      --ok:       #3fb950;
+      --warn:     #d29922;
+      --err:      #f85149;
+      --info:     #a5f3fc;
+    }
+    html, body { background: var(--bg); color: var(--text-1); font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif; font-size: 14px; line-height: 1.5; }
+    .container { max-width: 1280px; margin: 0 auto; padding: 24px 20px 48px; display: flex; flex-direction: column; gap: 20px; }
+    h1 { font-size: 20px; font-weight: 600; }
+    h2 { font-size: 14px; font-weight: 600; color: var(--text-1); margin-bottom: 8px; }
+    p { color: var(--text-2); font-size: 12px; }
+    code { background: #21262d; padding: 1px 5px; border-radius: 4px; font-size: 12px; color: #a5f3fc; }
+
+    header { display: flex; align-items: baseline; justify-content: space-between; flex-wrap: wrap; gap: 12px; }
+    header .meta { font-size: 12px; color: var(--text-2); }
+    header .meta strong { color: var(--text-1); }
+
+    .pill-strip { display: flex; flex-wrap: wrap; gap: 8px; }
+    .pill { font-size: 12px; padding: 4px 12px; border-radius: 20px; border: 1px solid; }
+    .pill--healthy  { color: var(--ok);   border-color: var(--ok);   background: rgba(63,185,80,0.10); }
+    .pill--degraded { color: var(--warn); border-color: var(--warn); background: rgba(210,153,34,0.10); }
+    .pill--down     { color: var(--err);  border-color: var(--err);  background: rgba(248,81,73,0.10); }
+    .pill--unknown  { color: var(--text-2); border-color: var(--border); background: var(--bg-row); }
+
+    .kpi-strip { display: grid; grid-template-columns: repeat(5, 1fr); gap: 12px; }
+    .kpi-card { background: var(--bg-card); border: 1px solid var(--border); border-radius: 8px; padding: 14px 16px; display: flex; flex-direction: column; gap: 2px; }
+    .kpi-value { font-size: 22px; font-weight: 600; }
+    .kpi-label { font-size: 11px; color: var(--text-2); }
+
+    .section { background: var(--bg-card); border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
+    .section__head { padding: 10px 16px; border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; align-items: baseline; }
+    .section__head h2 { margin: 0; }
+    .section__head .sub { font-size: 11px; color: var(--text-2); }
+    .section__body { padding: 12px 16px; }
+
+    table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    th { background: var(--bg-row); color: var(--text-2); font-weight: 500; font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em; padding: 8px 12px; text-align: left; border-bottom: 1px solid var(--border); }
+    td { padding: 8px 12px; border-bottom: 1px solid #21262d; vertical-align: top; }
+    tr:last-child td { border-bottom: none; }
+    .num { text-align: right; font-variant-numeric: tabular-nums; }
+
+    .row--info     td:first-child { border-left: 3px solid var(--info); }
+    .row--warning  td:first-child { border-left: 3px solid var(--warn); }
+    .row--critical td:first-child { border-left: 3px solid var(--err); }
+    .row--resolved td             { opacity: 0.45; }
+
+    .badge { display: inline-block; font-size: 10px; font-weight: 500; padding: 2px 6px; border-radius: 10px; border: 1px solid; text-transform: uppercase; letter-spacing: 0.03em; }
+    .badge--info     { color: var(--info); border-color: rgba(165,243,252,0.4); background: rgba(165,243,252,0.08); }
+    .badge--warning  { color: var(--warn); border-color: rgba(210,153,34,0.4); background: rgba(210,153,34,0.08); }
+    .badge--critical { color: var(--err);  border-color: rgba(248,81,73,0.4);  background: rgba(248,81,73,0.08); }
+    .badge--resolved { color: var(--text-2); border-color: var(--border); background: var(--bg-row); }
+
+    .evidence { margin-top: 4px; font-size: 12px; color: var(--text-2); }
+    .action   { margin-top: 4px; font-size: 12px; color: var(--info); }
+    .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+    .empty { color: var(--text-3); font-size: 12px; padding: 16px; text-align: center; font-style: italic; }
+    footer { color: var(--text-3); font-size: 11px; margin-top: 12px; text-align: center; }
+
+    @media (max-width: 900px) {
+      .kpi-strip { grid-template-columns: repeat(2, 1fr); }
+      .grid-2 { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+<div class="container">
+
+  <header>
+    <div>
+      <h1>cns-health</h1>
+      <p>Agentic observability for the vSphere CSI driver. Auto-refreshes every 30 seconds.</p>
+    </div>
+    <div class="meta">
+      <div>Driver: <strong>{{or .Driver.Name "unknown"}}</strong></div>
+      <div>Version: <strong>{{or .Driver.Version "unknown"}}</strong></div>
+      <div>Namespace: <strong>{{or .Driver.Namespace "unknown"}}</strong></div>
+      <div>Uptime: <strong>{{.Uptime}}</strong> · Reconciles: <strong>{{.ReconcileN}}</strong></div>
+    </div>
+  </header>
+
+  <div class="pill-strip">
+    <span class="pill pill--{{.Health.Controller}}">Controller: {{.Health.Controller}}</span>
+    <span class="pill pill--{{.Health.Syncer}}">Syncer: {{.Health.Syncer}}</span>
+    <span class="pill pill--{{.Health.Node}}">Node DS: {{.Health.Node}} ({{.Health.NodePodsHealthy}}/{{.Health.NodePodsTotal}})</span>
+    <span class="pill pill--{{.Health.CNSReachability}}">Metrics scrape: {{.Health.CNSReachability}}</span>
+    <span class="pill pill--{{.Health.SyntheticCanary}}">Synthetic canary: {{.Health.SyntheticCanary}}</span>
+  </div>
+
+  <div class="kpi-strip">
+    <div class="kpi-card"><span class="kpi-value">{{.Inventory.TotalPVs}}</span>     <span class="kpi-label">PersistentVolumes</span></div>
+    <div class="kpi-card"><span class="kpi-value">{{.Inventory.PVCsBound}}</span>    <span class="kpi-label">PVCs Bound</span></div>
+    <div class="kpi-card"><span class="kpi-value">{{.Inventory.PVCsPending}}</span>  <span class="kpi-label">PVCs Pending</span></div>
+    <div class="kpi-card"><span class="kpi-value">{{.Inventory.PVCsLost}}</span>     <span class="kpi-label">PVCs Lost</span></div>
+    <div class="kpi-card"><span class="kpi-value">{{.Inventory.AttachmentsAttached}}/{{.Inventory.VolumeAttachments}}</span><span class="kpi-label">Attachments (attached / total)</span></div>
+  </div>
+
+  {{if .Inventory.OldestPendingPVC}}
+  <p style="font-size:12px;color:var(--text-2);">
+    Oldest Pending PVC: <code>{{.Inventory.OldestPendingPVC}}</code> · age <strong>{{.Inventory.OldestPendingAge}}</strong>
+  </p>
+  {{end}}
+
+  <section class="section">
+    <div class="section__head">
+      <h2>Findings</h2>
+      <span class="sub">{{len .Findings}} entries · live</span>
+    </div>
+    <div class="section__body" style="padding: 0;">
+      {{if .Findings}}
+      <table>
+        <thead>
+          <tr>
+            <th>Severity</th>
+            <th>Title</th>
+            <th>Rule</th>
+            <th>Status</th>
+            <th>First Seen</th>
+            <th>Last Seen</th>
+          </tr>
+        </thead>
+        <tbody>
+        {{range .Findings}}
+          <tr class="row--{{.Severity}}{{if eq (printf "%s" .Status) "resolved"}} row--resolved{{end}}">
+            <td><span class="badge badge--{{.Severity}}">{{.Severity}}</span></td>
+            <td>
+              <div><strong>{{.Title}}</strong></div>
+              <div class="evidence">{{.Description}}</div>
+              {{if .Action}}<div class="action">→ {{.Action}}</div>{{end}}
+            </td>
+            <td><code>{{.RuleID}}</code></td>
+            <td><span class="badge badge--{{if eq (printf "%s" .Status) "resolved"}}resolved{{else}}{{.Severity}}{{end}}">{{.Status}}</span></td>
+            <td class="num">{{.FirstSeen.Format "15:04:05"}}</td>
+            <td class="num">{{.LastSeen.Format "15:04:05"}}</td>
+          </tr>
+        {{end}}
+        </tbody>
+      </table>
+      {{else}}
+      <div class="empty">No findings. Storage stack appears healthy at the last reconcile.</div>
+      {{end}}
+    </div>
+  </section>
+
+  <div class="grid-2">
+    <section class="section">
+      <div class="section__head">
+        <h2>CSI Driver Details</h2>
+        <span class="sub">observed via Kubernetes API</span>
+      </div>
+      <div class="section__body">
+        <table>
+          <tbody>
+            <tr><td>Name</td><td><code>{{or .Driver.Name "unknown"}}</code></td></tr>
+            <tr><td>Version</td><td><code>{{or .Driver.Version "unknown"}}</code></td></tr>
+            <tr><td>Namespace</td><td><code>{{or .Driver.Namespace "unknown"}}</code></td></tr>
+            <tr><td>Controller image</td><td><code>{{or .Driver.ControllerImage "unknown"}}</code></td></tr>
+            <tr><td>Syncer image</td><td><code>{{or .Driver.SyncerImage "unknown"}}</code></td></tr>
+            <tr><td>Node image</td><td><code>{{or .Driver.NodeImage "unknown"}}</code></td></tr>
+            <tr><td>Controller replicas</td><td>{{.Driver.ControllerReplicas}}</td></tr>
+            <tr><td>Node replicas</td><td>{{.Driver.NodeReplicas}}</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="section">
+      <div class="section__head">
+        <h2>Live Metrics Scrape</h2>
+        <span class="sub">CSI controller + syncer Prometheus endpoints</span>
+      </div>
+      <div class="section__body">
+        {{if .MetricsBy}}
+        <table>
+          <thead><tr><th>Endpoint</th><th>Status</th><th class="num">Ops/min</th><th class="num">Worst p95 (s)</th><th class="num">Inaccessible volumes</th></tr></thead>
+          <tbody>
+            {{range $url, $m := .MetricsBy}}
+            <tr>
+              <td><code>{{$url}}</code></td>
+              <td>{{if $m.Reachable}}<span class="badge badge--info">reachable</span>{{else}}<span class="badge badge--critical">{{$m.ScrapeErr}}</span>{{end}}</td>
+              <td class="num">{{len $m.OpsPerMinByOp}} op kinds</td>
+              <td class="num">{{len $m.P95LatencySecondsByOp}} entries</td>
+              <td class="num">{{$m.InaccessibleVolumes}}</td>
+            </tr>
+            {{end}}
+          </tbody>
+        </table>
+        {{else}}
+        <div class="empty">No metrics endpoints reachable yet.</div>
+        {{end}}
+      </div>
+    </section>
+  </div>
+
+  <footer>
+    cns-health · started {{.StartedAt.Format "2006-01-02 15:04 UTC"}} · last reconcile {{.LastReconcile.Format "2006-01-02 15:04:05 UTC"}}
+    {{if .LastError}}· <span style="color:var(--err);">last error: {{.LastError}}</span>{{end}}
+    · <a href="/api/state" style="color:var(--text-2);">/api/state</a>
+    · <a href="/api/findings" style="color:var(--text-2);">/api/findings</a>
+    · <a href="/api/metrics" style="color:var(--text-2);">/api/metrics</a>
+    · <a href="/metrics" style="color:var(--text-2);">Prometheus /metrics</a>
+  </footer>
+
+</div>
+</body>
+</html>

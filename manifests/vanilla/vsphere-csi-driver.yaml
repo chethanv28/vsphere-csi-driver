@@ -700,3 +700,185 @@ spec:
           operator: Exists
         - effect: NoSchedule
           operator: Exists
+---
+# =============================================================================
+# cns-health — agentic observability container (Phase 1)
+#
+# A separate, optional Deployment that watches the CSI driver from the outside:
+#   * informer-based watches on PV / PVC / VolumeAttachment / Pods
+#   * periodic scrape of the driver's existing Prometheus endpoints (:2112/:2113)
+#   * a deterministic rules engine producing structured Findings
+#   * a built-in HTML dashboard at :8080 (NodePort 30808 by default)
+#   * its own Prometheus metrics at :2114
+#
+# Phase 1 is read-only. Future phases add scoped write verbs for
+# self-service remediation behind feature flags.
+# =============================================================================
+kind: ServiceAccount
+apiVersion: v1
+metadata:
+  name: cns-health
+  namespace: vmware-system-csi
+---
+kind: ClusterRole
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: cns-health
+rules:
+  - apiGroups: [""]
+    resources: ["pods", "nodes", "services", "endpoints",
+                "persistentvolumeclaims", "persistentvolumes",
+                "configmaps", "events"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["storage.k8s.io"]
+    resources: ["volumeattachments", "storageclasses",
+                "csidrivers", "csinodes", "csistoragecapacities"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["snapshot.storage.k8s.io"]
+    resources: ["volumesnapshots", "volumesnapshotcontents",
+                "volumesnapshotclasses"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["apps"]
+    resources: ["deployments", "daemonsets", "replicasets"]
+    verbs: ["get", "list", "watch"]
+  # Future write surface (gated by feature flag in cns-health binary).
+  # Uncomment to enable agentic action vocabulary v1: Events + annotations.
+  # - apiGroups: [""]
+  #   resources: ["events"]
+  #   verbs: ["create", "patch"]
+  # - apiGroups: [""]
+  #   resources: ["persistentvolumes", "persistentvolumeclaims"]
+  #   verbs: ["patch"]
+---
+kind: ClusterRoleBinding
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: cns-health
+subjects:
+  - kind: ServiceAccount
+    name: cns-health
+    namespace: vmware-system-csi
+roleRef:
+  kind: ClusterRole
+  name: cns-health
+  apiGroup: rbac.authorization.k8s.io
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: cns-health
+  namespace: vmware-system-csi
+  labels:
+    app: cns-health
+spec:
+  # NodePort makes the dashboard browsable from a laptop without needing
+  # an Ingress controller installed. Change to ClusterIP and front with
+  # Ingress in environments that have one.
+  type: NodePort
+  ports:
+    - name: dashboard
+      port: 8080
+      targetPort: 8080
+      nodePort: 30808
+      protocol: TCP
+    - name: metrics
+      port: 2114
+      targetPort: 2114
+      protocol: TCP
+  selector:
+    app: cns-health
+---
+kind: Deployment
+apiVersion: apps/v1
+metadata:
+  name: cns-health
+  namespace: vmware-system-csi
+  labels:
+    app: cns-health
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: cns-health
+  template:
+    metadata:
+      labels:
+        app: cns-health
+        role: vsphere-csi
+    spec:
+      priorityClassName: system-cluster-critical
+      serviceAccountName: cns-health
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: node-role.kubernetes.io/control-plane
+                operator: Exists
+            - matchExpressions:
+              - key: node-role.kubernetes.io/controlplane
+                operator: Exists
+      tolerations:
+        - key: node-role.kubernetes.io/master
+          operator: Exists
+          effect: NoSchedule
+        - key: node-role.kubernetes.io/control-plane
+          operator: Exists
+          effect: NoSchedule
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        fsGroup: 65532
+      containers:
+        - name: cns-health
+          # Replace with the registry path where you push the cns-health image.
+          image: us-central1-docker.pkg.dev/k8s-staging-images/csi-vsphere/cns-health:latest
+          imagePullPolicy: "Always"
+          args:
+            - "--listen-addr=:8080"
+            - "--driver-namespace=$(CSI_NAMESPACE)"
+            - "--csi-driver-name=csi.vsphere.vmware.com"
+            - "--reconcile-every=30s"
+            - "--metric-scrape-every=60s"
+            - "--v=3"
+          env:
+            - name: CSI_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+          ports:
+            - name: dashboard
+              containerPort: 8080
+              protocol: TCP
+            - name: metrics
+              containerPort: 2114
+              protocol: TCP
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: dashboard
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: dashboard
+            initialDelaySeconds: 20
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 3
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: "1"
+              memory: 512Mi
+          securityContext:
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
