@@ -17,13 +17,21 @@ limitations under the License.
 package nfsdriver
 
 import (
+	"context"
 	"fmt"
 	"net"
+	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 	"sync"
 
+	"github.com/container-storage-interface/spec/lib/go/csi"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/types/known/timestamppb"
 	"k8s.io/apimachinery/pkg/util/validation"
+	"k8s.io/klog/v2"
 	mount "k8s.io/mount-utils"
 
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common"
@@ -91,6 +99,44 @@ func (n *Driver) ControllerServer() *ControllerServer {
 // NodeServer returns d's NodeServer, for direct in-process RPC calls.
 func (n *Driver) NodeServer() *NodeServer {
 	return n.ns
+}
+
+// GetSnapshot returns the snapshot with the given ID, or nil if its archive does not exist or the
+// ID is not one this package mints. Upstream has no ListSnapshots; pvCSI advertises it, so the
+// external-snapshotter decides whether a pre-provisioned snapshot is ready by listing it by ID.
+// The source volume is not recorded with the archive, so SourceVolumeId is left empty.
+func (cs *ControllerServer) GetSnapshot(ctx context.Context, snapshotID string, secrets map[string]string) (
+	*csi.Snapshot, error) {
+	snap, err := getNfsSnapFromID(snapshotID)
+	if err != nil {
+		klog.V(4).Infof("GetSnapshot: %q is not a snapshot ID: %v", snapshotID, err)
+		return nil, nil
+	}
+	vol := volumeFromSnapshot(snap)
+	if err := cs.internalMount(ctx, vol, nil, getVolumeCapabilityFromSecret(snapshotID, secrets)); err != nil {
+		return nil, status.Errorf(codes.Internal, "failed to mount nfs server to look up snapshot: %v", err)
+	}
+	defer func() {
+		if err := cs.internalUnmount(ctx, vol); err != nil {
+			klog.Warningf("failed to unmount nfs server after looking up snapshot: %v", err)
+		}
+	}()
+	snapDir := getInternalVolumePath(cs.Driver.workingMountDir, vol)
+	for _, compressed := range []bool{true, false} {
+		fi, err := os.Stat(filepath.Join(snapDir, snap.archiveName(compressed)))
+		if err == nil {
+			return &csi.Snapshot{
+				SnapshotId:   snapshotID,
+				SizeBytes:    fi.Size(),
+				CreationTime: timestamppb.New(fi.ModTime()),
+				ReadyToUse:   true,
+			}, nil
+		}
+		if !os.IsNotExist(err) {
+			return nil, status.Errorf(codes.Internal, "failed to look up snapshot archive: %v", err)
+		}
+	}
+	return nil, nil
 }
 
 // createVolumeParameters are the StorageClass parameters CreateVolume understands, lower-cased.

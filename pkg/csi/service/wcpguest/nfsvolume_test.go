@@ -135,6 +135,32 @@ func TestCreateGuestNFSVolumeReachesDriverValidation(t *testing.T) {
 	require.Contains(t, err.Error(), "share root")
 }
 
+// A Supervisor-backed snapshot or volume cannot seed a guest NFS volume; that is refused before the
+// vendored driver mounts anything. The share-root subDir makes the driver itself refuse the request
+// too, with a different message, should it ever be reached.
+func TestCreateGuestNFSVolumeRejectsSupervisorContentSource(t *testing.T) {
+	useFakeOrchestrator(t, true)
+	c := &controller{}
+
+	sources := map[string]*csi.VolumeContentSource{
+		"snapshot": {Type: &csi.VolumeContentSource_Snapshot{
+			Snapshot: &csi.VolumeContentSource_SnapshotSource{SnapshotId: "cluster-uid-1234"}}},
+		"volume": {Type: &csi.VolumeContentSource_Volume{
+			Volume: &csi.VolumeContentSource_VolumeSource{VolumeId: "cluster-uid-1234"}}},
+	}
+	for name, src := range sources {
+		t.Run(name, func(t *testing.T) {
+			req := guestNFSCreateRequest(map[string]string{"server": "10.0.0.1", "share": "/export", "subDir": "."})
+			req.VolumeContentSource = src
+			resp, fault, err := c.createGuestNFSVolume(context.Background(), req)
+			require.Nil(t, resp)
+			require.Equal(t, codes.InvalidArgument, status.Code(err), "got: %v", err)
+			require.Equal(t, csifault.CSIInvalidArgumentFault, fault)
+			require.Contains(t, err.Error(), "from a guest NFS snapshot or volume")
+		})
+	}
+}
+
 // DeleteVolume hands the ID to the vendored driver exactly as it received it, prefix included;
 // the driver is the only place that understands the prefix. An ID that points at the share root
 // is treated as already gone and nothing is deleted.
@@ -206,6 +232,21 @@ func TestControllerExpandGuestNFSVolume(t *testing.T) {
 		require.Equal(t, int64(5<<30), resp.GetCapacityBytes())
 		require.False(t, resp.GetNodeExpansionRequired(), "an NFS volume has no filesystem to grow on the node")
 	}
+}
+
+// external-provisioner refuses a PVC data source unless CLONE_VOLUME is advertised, so cloning a
+// guest NFS volume needs it; with the feature off, nothing can be cloned and it stays hidden.
+func TestControllerGetCapabilitiesCloneVolumeFollowsGuestNFSFeatureState(t *testing.T) {
+	before := len(controllerCaps)
+	for _, enabled := range []bool{true, false} {
+		useFakeOrchestrator(t, enabled)
+		resp, err := (&controller{}).ControllerGetCapabilities(context.Background(),
+			&csi.ControllerGetCapabilitiesRequest{})
+		require.NoError(t, err)
+		require.Equal(t, enabled, hasCap(resp, csi.ControllerServiceCapability_RPC_CLONE_VOLUME), "enabled=%v", enabled)
+		require.True(t, hasCap(resp, csi.ControllerServiceCapability_RPC_CREATE_DELETE_SNAPSHOT))
+	}
+	require.Len(t, controllerCaps, before, "the package-level capability list must not grow")
 }
 
 func TestValidateVolumeCapabilitiesGuestNFSVolume(t *testing.T) {
@@ -283,16 +324,22 @@ func TestDeleteSnapshotGuestNFSSnapshotNotGatedByFSS(t *testing.T) {
 	require.NotNil(t, resp)
 }
 
+// Listing the snapshots of a guest NFS volume, or by an ID that names no guest NFS snapshot, is
+// answered without the Supervisor (whose client is not set up here) and without mounting anything.
+// Looking up an existing snapshot by ID is covered by the nfsdriver package's GetSnapshot tests.
 func TestListSnapshotsGuestNFSIDsReturnEmptyList(t *testing.T) {
-	useFakeOrchestrator(t, true)
-	c := &controller{}
+	for _, enabled := range []bool{true, false} {
+		useFakeOrchestrator(t, enabled)
+		c := &controller{}
 
-	for _, req := range []*csi.ListSnapshotsRequest{
-		{SnapshotId: testGuestNFSSnapshotID},
-		{SourceVolumeId: testGuestNFSVolumeID},
-	} {
-		resp, err := c.ListSnapshots(context.Background(), req)
-		require.NoError(t, err)
-		require.Empty(t, resp.GetEntries())
+		for _, req := range []*csi.ListSnapshotsRequest{
+			{SnapshotId: nfsdriver.VolumeIDPrefix + "not-a-snapshot-id"},
+			{SnapshotId: nfsdriver.VolumeIDPrefix + "10.0.0.1#export#.#.#pvc-1"},
+			{SourceVolumeId: testGuestNFSVolumeID},
+		} {
+			resp, err := c.ListSnapshots(context.Background(), req)
+			require.NoError(t, err, "enabled=%v", enabled)
+			require.Empty(t, resp.GetEntries())
+		}
 	}
 }

@@ -123,6 +123,19 @@ func (c *controller) createGuestNFSVolume(ctx context.Context, req *csi.CreateVo
 			"invalid StorageClass parameters for guest NFS volume %q: %v", req.GetName(), err)
 	}
 
+	// The converse of the check in CreateVolume: only a guest NFS snapshot or volume can seed a guest
+	// NFS volume. Anything else, a Supervisor-backed snapshot or PVC, would fail only once the
+	// vendored driver has mounted the export and created the new volume's directory.
+	if src := req.GetVolumeContentSource(); src != nil && guestNFSContentSourceID(src) == "" {
+		srcID := src.GetSnapshot().GetSnapshotId()
+		if srcID == "" {
+			srcID = src.GetVolume().GetVolumeId()
+		}
+		return nil, csifault.CSIInvalidArgumentFault, logger.LogNewErrorCodef(log, codes.InvalidArgument,
+			"guest NFS volume %q can only be restored or cloned from a guest NFS snapshot or volume, not %q",
+			req.GetName(), srcID)
+	}
+
 	resp, err := nfsdriver.GetOrCreateDriver().ControllerServer().CreateVolume(ctx, req)
 	if err != nil {
 		log.Errorf("createGuestNFSVolume: CreateVolume failed for %q: %v", req.GetName(), err)
@@ -238,10 +251,25 @@ func deleteGuestNFSSnapshot(ctx context.Context, req *csi.DeleteSnapshotRequest)
 }
 
 // listGuestNFSSnapshots handles ListSnapshots for a request that names a guest NFS snapshot or
-// source volume. The vendored driver keeps no catalogue of snapshots to list, and these never
-// exist on the Supervisor, so the answer is an empty list, which is what the CSI spec asks for
-// an ID that is not found.
-func listGuestNFSSnapshots(_ context.Context, _ *csi.ListSnapshotsRequest) (
+// source volume. A snapshot named by its ID is looked up on the NFS server: that is how the
+// external-snapshotter finds out that a pre-provisioned snapshot is ready. The vendored driver
+// keeps no catalogue of the snapshots of a volume, and these never exist on the Supervisor, so
+// any other request is answered with an empty list, which is what the CSI spec asks for an ID that
+// is not found. Like DeleteSnapshot, this serves existing snapshots and is not gated on the
+// feature state (see isGuestNFSEnabled).
+func listGuestNFSSnapshots(ctx context.Context, req *csi.ListSnapshotsRequest) (
 	*csi.ListSnapshotsResponse, error) {
-	return &csi.ListSnapshotsResponse{}, nil
+	if !IsGuestNFSVolumeID(req.GetSnapshotId()) {
+		return &csi.ListSnapshotsResponse{}, nil
+	}
+	snap, err := nfsdriver.GetOrCreateDriver().ControllerServer().GetSnapshot(ctx, req.GetSnapshotId(),
+		req.GetSecrets())
+	if err != nil {
+		logger.GetLogger(ctx).Errorf("listGuestNFSSnapshots: failed to look up %q: %v", req.GetSnapshotId(), err)
+		return nil, err
+	}
+	if snap == nil {
+		return &csi.ListSnapshotsResponse{}, nil
+	}
+	return &csi.ListSnapshotsResponse{Entries: []*csi.ListSnapshotsResponse_Entry{{Snapshot: snap}}}, nil
 }

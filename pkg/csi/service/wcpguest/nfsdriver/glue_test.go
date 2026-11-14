@@ -249,3 +249,33 @@ func TestWaitForPathNotExist(t *testing.T) {
 	}()
 	require.NoError(t, waitForPathNotExistWithTimeout(target, 5*time.Second))
 }
+
+// The external-snapshotter decides whether a pre-provisioned snapshot is ready by listing it by
+// ID, so an existing archive must be found, and a missing one or an invalid ID reported as absent.
+func TestGetSnapshot(t *testing.T) {
+	cs, workDir := newTestControllerServer(t)
+	seedVolume(t, workDir, "pvc-src", "pvc-src")
+	created, err := cs.CreateSnapshot(context.Background(),
+		&csi.CreateSnapshotRequest{Name: "snap-1", SourceVolumeId: testSourceVolumeID})
+	require.NoError(t, err)
+
+	got, err := cs.GetSnapshot(context.Background(), created.Snapshot.SnapshotId, nil)
+	require.NoError(t, err)
+	require.NotNil(t, got)
+	require.Equal(t, created.Snapshot.SnapshotId, got.SnapshotId)
+	require.Equal(t, created.Snapshot.SizeBytes, got.SizeBytes)
+	require.True(t, created.Snapshot.CreationTime.AsTime().Equal(got.CreationTime.AsTime()))
+	require.True(t, got.ReadyToUse)
+
+	missing := VolumeIDPrefix + "10.0.0.1#export#snap-2#snap-2#pvc-src"
+	got, err = cs.GetSnapshot(context.Background(), missing, nil)
+	require.NoError(t, err)
+	require.Nil(t, got)
+
+	mounter := cs.Driver.ns.mounter.(*fakeNFSMounter)
+	mounter.ResetLog()
+	got, err = cs.GetSnapshot(context.Background(), VolumeIDPrefix+"10.0.0.1#export#.#.#pvc-src", nil)
+	require.NoError(t, err)
+	require.Nil(t, got)
+	require.Empty(t, mounter.GetLog(), "an invalid ID must not be mounted")
+}
