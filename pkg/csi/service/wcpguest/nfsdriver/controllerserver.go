@@ -988,8 +988,17 @@ func getNfsVolFromID(id string) (*nfsVolume, error) {
 	// IDs minted by this package carry VolumeIDPrefix (see getVolumeIDFromNfsVol). Remember the
 	// ID as given, which is what the volume must be reported back as, and parse the rest.
 	rawID := id
+	prefixed := IsGuestVolumeID(id)
 	id = strings.TrimPrefix(id, VolumeIDPrefix)
 	segments := strings.Split(id, separator)
+	// DEVIATION FROM VENDORED UPSTREAM: a prefixed ID is only accepted in the one shape
+	// getVolumeIDFromNfsVol mints. Anything else carrying the prefix was written by hand, for a
+	// statically provisioned volume, and the older shapes accepted below must not let it name a
+	// directory for DeleteVolume to remove.
+	if prefixed && len(segments) != totalIDElements {
+		return nil, fmt.Errorf("volume ID %q is not of the form %s<server>#<share>#<subDir>#<name>#<onDelete> "+
+			"that this driver creates", rawID, VolumeIDPrefix)
+	}
 	if len(segments) < 3 {
 		klog.V(2).Infof("could not split %s into server, baseDir and subDir with separator(%s)", id, separator)
 		// try with separator "/"
@@ -1025,6 +1034,11 @@ func getNfsVolFromID(id string) (*nfsVolume, error) {
 		if err := validateSubDir(uuid); err != nil {
 			return nil, fmt.Errorf("invalid uuid %q: %v", uuid, err)
 		}
+	}
+	// DeleteVolume deletes the directory for any onDelete other than retain or archive, so a
+	// misspelt one must not decode as "delete".
+	if err := validateOnDeleteValue(onDelete); err != nil {
+		return nil, err
 	}
 
 	return &nfsVolume{

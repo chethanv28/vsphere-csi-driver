@@ -157,6 +157,18 @@ func TestGetNfsVolFromID(t *testing.T) {
 			want: nfsVolume{server: "10.0.0.1", baseDir: "export", subDir: "pvc-1"}},
 		{name: "pvCSI prefix is not part of the server", id: VolumeIDPrefix + "10.0.0.1#export#pvc-1##",
 			want: nfsVolume{server: "10.0.0.1", baseDir: "export", subDir: "pvc-1"}},
+		{name: "onDelete is kept as written", id: VolumeIDPrefix + "10.0.0.1#export#tenant#pvc-1#Retain",
+			want: nfsVolume{server: "10.0.0.1", baseDir: "export", subDir: "tenant", uuid: "pvc-1", onDelete: "Retain"}},
+		// A prefixed ID can only have been minted by getVolumeIDFromNfsVol, which always writes
+		// five fields; any other shape was written by hand for a statically provisioned volume.
+		{name: "prefixed id with three fields", id: VolumeIDPrefix + "10.0.0.1#export#data", errPart: "is not of the form"},
+		{name: "prefixed id with four fields", id: VolumeIDPrefix + "10.0.0.1#export#data#", errPart: "is not of the form"},
+		{name: "prefixed id with six fields", id: VolumeIDPrefix + "10.0.0.1#export#data###x",
+			errPart: "is not of the form"},
+		{name: "prefixed legacy slash separated id", id: VolumeIDPrefix + "10.0.0.1/export/data",
+			errPart: "is not of the form"},
+		{name: "prefixed free-form id", id: VolumeIDPrefix + "pv-nfs-static", errPart: "is not of the form"},
+		{name: "unknown onDelete", id: VolumeIDPrefix + "10.0.0.1#export#data##keep", errPart: "OnDelete"},
 		{name: "subDir dot", id: "10.0.0.1#export#.#pvc-1", errPart: "share root"},
 		{name: "empty subDir", id: "10.0.0.1#export##pvc-1#", errPart: "share root"},
 		{name: "subDir slash", id: "10.0.0.1#export#/#pvc-1", errPart: "share root"},
@@ -386,7 +398,7 @@ func TestDeleteVolumeIgnoresShareRootIDs(t *testing.T) {
 		"10.0.0.1#export#.#pvc-1",
 		"10.0.0.1#export##pvc-1#",
 		"10.0.0.1#export#/#pvc-1",
-		VolumeIDPrefix + "10.0.0.1#export#.#pvc-1",
+		VolumeIDPrefix + "10.0.0.1#export#.#pvc-1#",
 	} {
 		t.Run(id, func(t *testing.T) {
 			cs, workDir := newTestControllerServer(t)
@@ -397,6 +409,32 @@ func TestDeleteVolumeIgnoresShareRootIDs(t *testing.T) {
 			require.NoError(t, err)
 			require.NotNil(t, resp)
 			require.FileExists(t, filepath.Join(other, "data.txt"))
+		})
+	}
+}
+
+// The handle of a statically provisioned PersistentVolume is whatever its author wrote. Unless it
+// is exactly in the shape CreateVolume mints, DeleteVolume must treat it as a volume that does not
+// exist and leave the directory it seems to name alone, even though the older ID shapes that
+// getNfsVolFromID still decodes for unprefixed IDs would name one.
+func TestDeleteVolumeLeavesDataOfHandlesItDidNotMint(t *testing.T) {
+	for _, id := range []string{
+		VolumeIDPrefix + "10.0.0.1#export#data",
+		VolumeIDPrefix + "10.0.0.1#export#data#",
+		VolumeIDPrefix + "10.0.0.1#export#data###x",
+		VolumeIDPrefix + "10.0.0.1/export/data",
+		VolumeIDPrefix + "10.0.0.1#export#data##keep",
+		VolumeIDPrefix + "10.0.0.1#export#data##retained",
+	} {
+		t.Run(id, func(t *testing.T) {
+			cs, workDir := newTestControllerServer(t)
+			// Where DeleteVolume would look for subDir "data" if it decoded the handle.
+			data := seedVolume(t, workDir, "data", "data")
+
+			resp, err := cs.DeleteVolume(context.Background(), &csi.DeleteVolumeRequest{VolumeId: id})
+			require.NoError(t, err)
+			require.NotNil(t, resp)
+			require.FileExists(t, filepath.Join(data, "data.txt"))
 		})
 	}
 }

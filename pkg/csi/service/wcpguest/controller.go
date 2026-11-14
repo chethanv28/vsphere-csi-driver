@@ -1062,6 +1062,9 @@ func (c *controller) ControllerPublishVolume(ctx context.Context, req *csi.Contr
 			volumeType = prometheus.PrometheusFileVolumeType
 			return publishGuestNFSVolume(ctx, req)
 		}
+		if err := unprefixedGuestNFSVolumeError(ctx, req.GetVolumeId(), req.GetVolumeContext()); err != nil {
+			return nil, csifault.CSIInvalidArgumentFault, err
+		}
 
 		// File volumes support
 		if isFileVolumeRequest {

@@ -44,6 +44,9 @@ limitations under the License.
 //     ID component, and getNfsVolFromID tolerates the pvCSI VolumeIDPrefix. Snapshot IDs get the
 //     same treatment (controllerserver.go validateSnapshotDirs, used by newNFSSnapshot and
 //     getNfsSnapFromID), so DeleteSnapshot cannot remove the share root or a directory above it.
+//   - getNfsVolFromID accepts an ID carrying VolumeIDPrefix only in the exact shape
+//     getVolumeIDFromNfsVol mints, and rejects an unknown onDelete value, so the handle of a
+//     statically provisioned volume cannot be decoded as a directory to delete.
 //   - DeleteVolume is idempotent after a lost response or a restart: archiveVolumeDir and
 //     removeEmptyDirs treat an already-removed path as done.
 //   - CreateSnapshot is idempotent and leaves nothing behind when it fails: it holds a lock per
